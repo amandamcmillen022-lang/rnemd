@@ -1,0 +1,120 @@
+(base) [armcmill@login01 samp]$ cat  rnemd_ternary_1200.in
+clear
+units metal
+dimension 3
+boundary p p p
+atom_style atomic
+
+log log.lammps
+
+read_data relaxed_z4.data
+
+mass            1 6.94
+mass            2 39.10
+mass            3 22.99
+mass            4 35.45
+
+pair_style mlip load_from=**potential
+pair_coeff * *
+
+neighbor 2.0 bin
+neigh_modify delay 0 every 1 check yes
+
+timestep 0.001
+
+velocity all create 1200 393958 mom yes rot yes dist gaussian
+
+thermo 500
+thermo_style custom step temp press density etotal pe ke vol
+
+print "========================================="
+print "STAGE 1: NPT DENSITY EQUILIBRATION 1200 K"
+print "========================================="
+
+fix eq all npt temp 1200 1200 0.1 iso 0.0 0.0 1.0 drag 1.0
+
+dump npt_dump all custom 1000 npt_1200K.lammpstrj id type x y z
+restart 5000 npt.*.restart
+
+run 40000
+
+unfix eq
+undump npt_dump
+
+write_restart npt_final.restart
+write_data npt_final.data
+
+print "========================================="
+print "STAGE 2: NVT EQUILIBRATION 1200 K"
+print "========================================="
+
+fix nvt1 all nvt temp 1200 1200 0.1
+
+dump nvt_dump all custom 1000 nvt.lammpstrj id type x y z
+restart 5000 nvt.*.restart
+
+run 20000
+
+unfix nvt1
+undump nvt_dump
+
+write_restart nvt_final.restart
+
+print "========================================="
+print "STAGE 3: NVE EQUILIBRATION"
+print "========================================="
+
+fix nve1 all nve
+fix mom1 all momentum 100 linear 1 1 1
+
+dump nve_dump all custom 1000 nve.lammpstrj id type x y z
+restart 5000 nve.*.restart
+
+run 20000
+
+unfix nve1
+unfix mom1
+undump nve_dump
+
+write_restart nve_final.restart
+
+print "========================================="
+print "STAGE 4: RNEMD PRODUCTION"
+print "========================================="
+
+fix nve2 all nve
+fix mom2 all momentum 100 linear 1 1 1
+
+fix rnemd all thermal/conductivity 100 z 20 swap 1
+
+variable nbins equal 20
+variable dz equal lz/v_nbins
+
+compute slabs all chunk/atom bin/1d z lower ${dz} units box
+compute Tslab all temp/chunk slabs temp
+
+fix TPROF all ave/time 200 80 20000 c_Tslab[*] mode vector file temp_profile.rnemd
+
+variable A equal lx*ly
+
+fix FLUX_AVG all ave/time 200 80 20000 f_rnemd file flux_avg.dat mode scalar
+
+thermo 500
+thermo_style custom step temp press pe ke etotal f_rnemd
+
+restart 5000 rnemd.*.restart
+
+run 500000
+
+unfix TPROF
+unfix FLUX_AVG
+unfix rnemd
+unfix mom2
+unfix nve2
+
+write_restart rnemd_final.restart
+write_data rnemd_final.data
+
+print "========================================="
+print "RNEMD WORKFLOW COMPLETE"
+print "========================================="
