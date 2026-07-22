@@ -1,0 +1,222 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.optimize import least_squares
+
+data = pd.read_csv("ternary_grid_kappa.csv")
+
+xLi = data["Li_frac"].values
+xNa = data["Na_frac"].values
+xK  = data["K_frac"].values
+
+kappa = data["kappa"].values
+
+
+kLi = 0.449833
+kNa = 0.369172
+kK  = 0.329950
+
+
+
+def rk_pair(x1, x2, A):
+    """
+    Binary Redlich-Kister contribution:
+    
+    x1*x2*(A0 + A1(x1-x2) + A2(x1-x2)^2)
+    """
+
+    dx = x1 - x2
+
+    value = np.zeros_like(x1)
+
+    for n, coeff in enumerate(A):
+        value += coeff * dx**n
+
+    return x1*x2*value
+
+
+
+def ternary_rk(params):
+
+    A_LiNa = params[0:3]
+    A_LiK  = params[3:6]
+    A_NaK  = params[6:9]
+
+    A123 = params[9]
+
+
+    ideal = (
+        xLi*kLi +
+        xNa*kNa +
+        xK*kK
+    )
+
+
+    model = (
+        ideal
+        + rk_pair(xLi, xNa, A_LiNa)
+        + rk_pair(xLi, xK, A_LiK)
+        + rk_pair(xNa, xK, A_NaK)
+        + A123*xLi*xNa*xK
+    )
+
+    return model
+
+
+
+def residual(params):
+    return ternary_rk(params) - kappa
+
+
+# fit
+guess = np.zeros(10)
+
+
+result = least_squares(
+    residual,
+    guess
+)
+
+params = result.x
+
+
+pred = ternary_rk(params)
+
+
+
+# coeff
+
+print("\nRedlich-Kister coefficients")
+print("--------------------------------")
+
+print("Li-Na:")
+print(params[0:3])
+
+print("\nLi-K:")
+print(params[3:6])
+
+print("\nNa-K:")
+print(params[6:9])
+
+print("\nTernary:")
+print(params[9])
+
+
+
+#err 
+
+errors = pred - kappa
+
+rmse = np.sqrt(np.mean(errors**2))
+mae = np.mean(np.abs(errors))
+max_error = np.max(np.abs(errors))
+
+
+print("\nFit quality")
+print("--------------------------------")
+print("RMSE =", rmse, "W/mK")
+print("MAE  =", mae, "W/mK")
+print("Maximum error =", max_error, "W/mK")
+
+
+
+# outlier
+
+worst = np.argmax(np.abs(errors))
+
+print("\nWorst fitting point:")
+print(data.iloc[worst])
+
+print("MD kappa:", kappa[worst])
+print("RK kappa:", pred[worst])
+print("Error:", errors[worst])
+
+
+
+# save 
+with open("redlich_kister_coefficients_fit3.txt","w") as f:
+
+    f.write("Redlich-Kister coefficients (fit3)\n")
+    f.write("--------------------------------\n\n")
+
+    f.write("Pure component conductivities:\n")
+    f.write(f"LiCl = {kLi}\n")
+    f.write(f"NaCl = {kNa}\n")
+    f.write(f"KCl  = {kK}\n\n")
+
+    f.write("Li-Na:\n")
+    f.write(str(params[0:3])+"\n\n")
+
+    f.write("Li-K:\n")
+    f.write(str(params[3:6])+"\n\n")
+
+    f.write("Na-K:\n")
+    f.write(str(params[6:9])+"\n\n")
+
+    f.write("Ternary:\n")
+    f.write(str(params[9])+"\n\n")
+
+    f.write("RMSE:\n")
+    f.write(str(rmse)+" W/mK\n")
+
+
+
+# parity
+
+plt.figure(figsize=(6,6))
+
+plt.scatter(kappa, pred)
+
+lims = [
+    min(kappa.min(), pred.min()),
+    max(kappa.max(), pred.max())
+]
+
+plt.plot(lims, lims)
+
+plt.xlabel("LAMMPS Thermal Conductivity (W/mK)")
+plt.ylabel("RK Predicted Conductivity (W/mK)")
+
+plt.title("Redlich-Kister Fit 3 Parity")
+
+plt.tight_layout()
+
+plt.savefig(
+    "rk_fit3_parity.png",
+    dpi=300
+)
+
+plt.close()
+
+
+
+# resid  plot
+plt.figure(figsize=(7,4))
+
+plt.scatter(
+    range(len(errors)),
+    errors
+)
+
+plt.axhline(0)
+
+plt.xlabel("Composition index")
+plt.ylabel("RK - MD (W/mK)")
+
+plt.title("Redlich-Kister Fit 3 Residuals")
+
+plt.tight_layout()
+
+plt.savefig(
+    "rk_fit3_residuals.png",
+    dpi=300
+)
+
+plt.close()
+
+
+
+print("\nGenerated files:")
+print("  rk_fit3_parity.png")
+print("  rk_fit3_residuals.png")
+print("  redlich_kister_coefficients_fit3.txt")
